@@ -1,0 +1,1698 @@
+---
+title: "Fungal Project_Version5"
+author: "Yiling Liu"
+date: "6/6/2017"
+geometry: margin=1cm
+output: pdf_document
+---
+
+```{r, message=F, warning=F}
+#library chunk
+###### Load some libraries ######
+library(Biobase)
+library(affy)
+library(xlsx)
+library(gcrma)
+library(pvca)
+library(limma)
+library(bladderbatch)
+library(ggplot2)
+library(reshape2)
+library(rafalib)
+library(gdata)
+library(rafalib)
+library("hgu133a2.db")
+library("annotate")
+citation("hgu133a2.db")
+library(xtable)
+library("ALL")
+library("gplots")
+library("glmnet")
+library("ROCR")
+library("pROC")
+library(pander)
+library("glmnet")
+library("ROCR")
+library("pROC")
+library("caret")
+library("reshape")
+```
+
+**We have the dataset "ExpressionKey_affy_20130814_key"" including different pertubation class. So we clean the data and divide the dataset according to the pertubation class. Also, in each pertubation class we have one or more pertubations, we then divide the pertubation class subset according to the pertubation. Since the name of the sample is too long, now we just use a short name.**
+
+```{r, message=F, warning=F}
+#clean the key
+setwd("~/Desktop/Duke3514_2013_08_21_Affy_Generated_Output")
+raw <- read.csv("ExpressionKey_affy_20130814_key.csv",
+                sep = ',',stringsAsFactors = FALSE, 
+                header=FALSE,skip=1)
+
+key1 <- raw[,c(1,8:10)]
+names(key1) <- c("Sample.Name","name","Pertubation","PertubationClass")
+key <- key1
+key$ShortName <- 1:54
+key <- key[,c(5,1,2,3,4)]
+```
+
+**Then make some plots of the raw data.**
+Then we read in the cell file and do some exploratory data analysis.
+```{r, message=F, warning=F}
+#read the data
+#examine the plot and try to find outliers
+setwd("~/Desktop/Duke3514_2013_08_21_Affy_Generated_Output")
+affy.data <- ReadAffy() 
+hist(affy.data)
+RNAdeg<-AffyRNAdeg(affy.data)
+plotAffyRNAdeg(RNAdeg)
+```
+
+Then we do gcrma normalization to the affy data and use boxplot to show the result.
+```{r, message=F, warning=F}
+#Try GCRMA to normalize the data
+data.gcrma.norm=gcrma(affy.data)
+gcrma=exprs(data.gcrma.norm)
+frame.gcrma <- data.frame(gcrma)
+names(frame.gcrma) <- 1:54
+
+
+#divide them into different catagories
+#Uninfected
+uninf <- key[key$PertubationClass=="none",]
+uninf.name <- uninf$ShortName
+#Viral
+Viral <- key[key$PertubationClass=="Viral",]
+Viral.name <- Viral$ShortName
+#Bacterial
+Bact <- key[key$PertubationClass=="Bacterial",]
+Bact.name <- Bact$ShortName 
+#Fungal
+fungal <- key[key$PertubationClass=="Fungal",]
+fungal.name <- fungal$ShortName
+
+col.class <- rep("orange",54)
+col.class[uninf.name] <- "light blue"
+col.class[Viral.name] <- "red"
+col.class[Bact.name] <- "purple"
+
+boxplot(frame.gcrma,ylim=c(0,20),main="GCRMA result figure",xlab="Sample name for short",col=col.class)
+legend('topright',
+       legend=c("No infection","Viral","Bacterial","Fungal"),
+       fill =c('light blue','red','purple','orange'),inset=.02,cex=0.4)
+```
+
+Then I use PCA of the gcrma normalized data to see if you have any outliers or if everything is nicely scattered and what proportion of variance is explained by each PC.
+```{r, message=F, warning=F}
+#PCA
+#PCA of the gcrma normalized data
+#from the graph we can conclude that there may be no outlier here
+data.PC = prcomp(t(frame.gcrma))
+#group <- as.fumeric(key$name)
+col.class <- rep("blue",54) #Candida
+col.class[key$Pertubation=="Crypt gatt"] <- "grey"
+col.class[key$Pertubation=="Crypt neo"] <- "red"
+col.class[key$Pertubation=="E. coli"] <- "purple"
+col.class[key$Pertubation=="Influenza"] <- "light blue"
+col.class[key$Pertubation=="LPS"] <- "black"
+col.class[key$Pertubation=="Poly I:C"] <- "pink"
+col.class[key$Pertubation=="St. Pneum"] <- "orange"
+col.class[key$Pertubation=="Uninfected"] <- "yellow"
+
+plot(data.PC$x[, 1], data.PC$x[, 2],col=col.class, 
+     main = "PCA of Pertubation", xlab = "PC1", ylab = "PC2",pch=16,cex=0.8)
+legend("bottomleft",
+       legend=c("Candida","Crypt gatt", "Crypt neo", "E. coli", "Influenza","LPS", "Poly I:C", "St. Pneum",
+                "Uninfected"),
+       col =c("blue","grey","red","purple","light blue","black","pink","orange","yellow"),
+       inset=.02,cex=0.4,pch=16)
+
+
+#PCA color by infection type
+#PCA
+#PCA of the gcrma normalized data
+#from the graph we can conclude that there may be no outlier here
+data.PC = prcomp(t(frame.gcrma))
+#group <- as.fumeric(key$name)
+cols <- as.factor(key$PertubationClass)
+plot(data.PC$x[, 1], data.PC$x[, 2],col=cols, 
+     main = "PCA by Infection Type", xlab = "PC1", ylab = "PC2",pch=16,cex=0.8)
+legend("bottomleft",
+       legend=c("Bacterial","Fungal", "none", "Viral"),
+       col =1:4,inset=.02,cex=0.4,pch=16)
+```
+
+Then we do sample pair-wise correlation and find it is near 1.Then I visualize these using a heatmap.
+For all:
+```{r, message=F, warning=F}
+#for all
+#sample 20 slightly different from others
+qplot(x=X1, y=X2, data=melt(cor(frame.gcrma)), fill=value, geom="tile",main="Correlation Matrix")
+```
+
+*From the above graph, we can find out sample 20 is different from others*
+Then we may go back to the former graphs and check out sample 20.
+```{r, message=F, warning=F}
+cols <- rep("blue",54)
+cols[20] <- "red"
+hist(affy.data,col=cols)
+
+cols <- rep("blue",54)
+cols[20] <- "red"
+plotAffyRNAdeg(RNAdeg,cols = cols)
+legend('topright',legend=c("Sample 20","Other"),col = c("red","blue"),pch=1)
+
+col.class <- rep("orange",54)
+col.class[uninf.name] <- "light blue"
+col.class[Viral.name] <- "red"
+col.class[Bact.name] <- "purple"
+col.class[20] <- "blue"
+
+boxplot(frame.gcrma,ylim=c(0,20),main="GCRMA result figure",xlab="Sample name for short",col=col.class)
+legend('topright',
+       legend=c("No infection","Viral","Bacterial","Fungal","Sample 20"),
+       fill =c('light blue','red','purple','orange',"blue"),inset=.02,cex=0.4)
+
+```
+
+Then I use limma for differential expression considering intercept or not and then compare the results. Also I use volcano plots to show the result.
+```{r, message=F, warning=F}
+#Way one, use non-infection as compare group
+design1 <- model.matrix(~factor(key$PertubationClass,levels=c("none","Viral","Bacterial","Fungal")))
+colnames(design1) <- c("Intercept","Viral","Bacterial","Fungal")
+fit11 <- lmFit(frame.gcrma,design1)
+fit1all <- eBayes(fit11)
+
+t12 <- topTable(fit1all,coef=2,adjust.method="BH") #for viral
+t13 <- topTable(fit1all,coef=3,adjust.method="BH") #for Bacteria
+t14 <- topTable(fit1all,coef=4,adjust.method="BH") #for fungal
+
+#compare the two groups
+#since here we only have to think of coeffienct because they mean the contribution of the variable to the reponse
+#varible when holding all other factors as constant
+apply(fit1all$coefficients,2,mean)
+
+
+#compare 1
+#use T test to decide whether each t-statistic is classified as significantly negative
+DECIDE<-decideTests(fit1all,method="separate",adjust.method="BH",p.value=
+                      0.05,lfc=0)
+
+
+
+#just take out intercept
+
+design2 <- model.matrix(~0+factor(key$PertubationClass,
+                                   levels=c("none","Viral","Bacterial","Fungal")))
+colnames(design2) <- c("None","Viral","Bacterial","Fungal")
+fit21 <- lmFit(frame.gcrma,design2)
+fit2all <- eBayes(fit21)
+
+cont.matrix2 <- makeContrasts(viral=Viral-None, bacteria=Bacterial-None, fungal= Fungal-None, 
+                             levels=design2)
+fit22 <- contrasts.fit(fit21, cont.matrix2)
+fit22 <- eBayes(fit22)
+apply(fit22$coefficients,2,mean)
+
+
+t21 <- topTable(fit2all,coef=1,adjust.method="BH") #for noninfected
+t22 <- topTable(fit2all,coef=2,adjust.method="BH") #for viral
+t23 <- topTable(fit2all,coef=3,adjust.method="BH") #for Bacteria
+t24 <- topTable(fit2all,coef=4,adjust.method="BH") #for fungal
+
+#use T test to decide whether each t-statistic is classified as significantly negative
+DECIDE<-decideTests(fit22,method="separate",adjust.method="BH",p.value=
+                      0.05,lfc=0)
+cont21<-topTable(fit22,coef=1,adjust.method="BH") #Viral-None
+cont22<-topTable(fit22,coef=2,adjust.method="BH") #Bacterial-None
+cont23<-topTable(fit22,coef=3,adjust.method="BH") #Fungal-None
+```
+
+Show the significant gene by table.
+```{r results = 'asis'}
+knitr::opts_chunk$set(cache=TRUE)
+#show two results as a table
+#Ten most significant gene IDs in two limma result
+#gene with largest difference
+Viral.vs.None.M1 <- t12$ID
+Viral.vs.None.M2 <- cont21$ID
+Bacteria.vs.None.M1 <- t13$ID
+Bacteria.vs.None.M2 <- cont22$ID
+Fungal.vs.None.M1 <- t14$ID
+Fungal.vs.None.M2 <- cont23$ID
+significant.gene2 <- data.frame(Viral.vs.None.M1,Viral.vs.None.M2,Bacteria.vs.None.M1,Bacteria.vs.None.M2,
+                                  Fungal.vs.None.M1,Fungal.vs.None.M2)
+options(xtable.comment = FALSE)
+significant.gene2 <- xtable(significant.gene2,caption = "Ten most significant probe IDs different from no infection")
+print(significant.gene2, scalebox = 0.7)
+```
+
+##Now we consider compare different infection group.
+```{r results = 'asis'}
+knitr::opts_chunk$set(cache=TRUE)
+cont.matrix2 <- makeContrasts(vb=Viral-Bacterial, bf=Bacterial-Fungal, vf= Viral-Fungal, 
+                              levels=design2)
+fit23 <- contrasts.fit(fit21, cont.matrix2)
+fit23 <- eBayes(fit23)
+
+cont31<-topTable(fit23,coef=1,adjust.method="BH") #Viral-Bacterial
+cont32<-topTable(fit23,coef=2,adjust.method="BH") #Bacterial-Fungal
+cont33<-topTable(fit23,coef=3,adjust.method="BH") #Viral-Fungal
+
+V.vs.B <- cont31$ID
+B.vs.F <- cont32$ID
+V.vs.F <- cont33$ID
+significant.gene3 <- data.frame(V.vs.B,B.vs.F,V.vs.F)
+options(xtable.comment = FALSE)
+significant.gene3 <- xtable(significant.gene3,caption = "Ten most significant probe IDs different from each other")
+print(significant.gene3)
+```
+
+Show two results in figures
+Volcano Plot for Viral 
+```{r, message=F, warning=F}
+par(mfrow=c(1,2))
+#after p value adjustment
+col11b <- rep("gray",dim(fit1all)[1])
+p12<- p.adjust(fit1all$p.value[,2], method = "BH")
+col11b[p12<0.05] <- "red"
+
+plot(fit1all$coefficients[,2], -log10(fit1all$p.value[,2]),xlab="Coefficient",ylab="-log10(P-value)",pch=16,cex=0.35,
+     main="Viral With Intercept",col=col11b)
+legend("topright",
+       legend=c("Significant gene","Not Significant gene"),
+       col =c("red","gray"),inset=.02,cex=0.4,pch=16)
+
+col41b <- rep("gray",dim(fit22)[1])
+p42<- p.adjust(fit22$p.value[,"viral"], method = "BH")
+col41b[p42<0.05] <- "red"
+plot(fit22$coefficients[,"viral"], -log10(fit22$p.value[,"viral"]),xlab="Coefficient",ylab="-log10(P-value)",pch=16,cex=0.35,
+     main="Viral Without Intercept",col=col41b)
+legend("topright",
+       legend=c("Significant gene","Not Significant gene"),
+       col =c("red","gray"),inset=.02,cex=0.4,pch=16)
+```
+
+
+Volcano Plot for Bacteria:
+```{r, message=F, warning=F}
+par(mfrow=c(1,2))
+#after adjustment
+col21b <- rep("gray",dim(fit1all)[1])
+p22<- p.adjust(fit1all$p.value[,3], method = "BH")
+col21b[p22<0.05] <- "red"
+
+plot(fit1all$coefficients[,3], -log10(fit1all$p.value[,3]),xlab="Coefficient",ylab="-log10(P-value)",pch=16,cex=0.35,
+     main="Bacteria With Intercept",col=col21b)
+legend("topright",
+       legend=c("Significant gene","Not Significant gene"),
+       col =c("red","gray"),inset=.02,cex=0.4,pch=16)
+
+#after adjustment
+col51b <- rep("gray",dim(fit22)[1])
+p52<- p.adjust(fit22$p.value[,"bacteria"], method = "BH")
+col51b[p52<0.05] <- "red"
+plot(fit22$coefficients[,"bacteria"], -log10(fit22$p.value[,"bacteria"]),xlab="Coefficient",ylab="-log10(P-value)",pch=16,cex=0.35,
+     main="Bacteria Without Intercept",col=col51b)
+legend("topright",
+       legend=c("Significant gene","Not Significant gene"),
+       col =c("red","gray"),inset=.02,cex=0.4,pch=16)
+```
+
+Volcano Plot for Fungal:
+```{r, message=F, warning=F}
+par(mfrow=c(1,2))
+#after adjustment
+col31b <- rep("gray",dim(fit1all)[1])
+p32<- p.adjust(fit1all$p.value[,4], method = "BH")
+col31b[p32<0.05] <- "red"
+
+plot(fit1all$coefficients[,4], -log10(fit1all$p.value[,4]),xlab="Coefficient",ylab="-log10(P-value)",pch=16,cex=0.35,
+     main="Fungal With Intercept",col=col31b)
+legend("topright",
+       legend=c("Significant gene","Not Significant gene"),
+       col =c("red","gray"),inset=.02,cex=0.4,pch=16)
+
+#after adjustment
+col61b <- rep("gray",dim(fit22)[1])
+p62<- p.adjust(fit22$p.value[,"fungal"], method = "BH")
+col61b[p62<0.05] <- "red"
+plot(fit22$coefficients[,"fungal"], -log10(fit22$p.value[,"fungal"]),
+     xlab="Coefficient",ylab="-log10(P-value)",pch=16,cex=0.35,
+     main="Fungal Without Intercept",col=col61b)
+legend("topright",
+       legend=c("Significant gene","Not Significant gene"),
+       col =c("red","gray"),inset=.02,cex=0.4,pch=16)
+```
+
+
+Consider limma including name as blocking factor and change the model into mix effect model.
+```{r, message=F, warning=F}
+#consider limma including name as blocking factor
+#mix effect model
+block <- key$name
+design3 <- model.matrix(~factor(key$PertubationClass,levels=c("none","Viral","Bacterial","Fungal")))
+colnames(design3) <- c("Intercept","Viral","Bacterial","Fungal")
+dupcor <- duplicateCorrelation(frame.gcrma,design3,block=block)
+dupcor$consensus.correlation
+fit3 <- lmFit(frame.gcrma,design3,block=block,correlation=dupcor$consensus)
+fit3 <- eBayes(fit3)
+
+t32 <- topTable(fit3,coef=2,adjust.method="BH") #for viral
+t33 <- topTable(fit3,coef=3,adjust.method="BH") #for Bacteria
+t34 <- topTable(fit3,coef=4,adjust.method="BH") #for fungal
+
+```
+
+
+```{r results = 'asis'}
+knitr::opts_chunk$set(cache=TRUE)
+Viral <- t12$ID
+Viral.name <- t32$ID
+Bact <- t13$ID
+Bact.name <- t33$ID
+Fung <- t14$ID
+Fung.name <- t34$ID
+significant.gene4 <- data.frame(Viral,Viral.name,Bact,Bact.name,Fung,Fung.name)
+options(xtable.comment = FALSE)
+significant.gene4 <- xtable(significant.gene4,caption = "Significant probes considering name or not")
+print(significant.gene4,scalebox = 0.7)
+```
+
+
+Try to map probe to gene
+
+```{r results = 'asis'}
+knitr::opts_chunk$set(cache=TRUE)
+viral.pro.gene <- select(hgu133a2.db, Viral, c("SYMBOL", "ENTREZID", "GENENAME"))
+viral.gene <- as.data.frame(viral.pro.gene)$SYMBOL
+
+Viral.name.pro.gene <- select(hgu133a2.db, Viral.name, c("SYMBOL", "ENTREZID", "GENENAME"))
+Viral.name.gene <- as.data.frame(Viral.name.pro.gene)$SYMBOL
+
+Bact.pro.gene <- select(hgu133a2.db, Bact, c("SYMBOL", "ENTREZID", "GENENAME"))
+Bact.gene <- as.data.frame(Bact.pro.gene)$SYMBOL
+
+Bact.name.pro.gene <- select(hgu133a2.db, Bact.name, c("SYMBOL", "ENTREZID", "GENENAME"))
+Bact.name.gene <- as.data.frame(Bact.name.pro.gene)$SYMBOL
+
+Fung.pro.gene <- select(hgu133a2.db, Fung, c("SYMBOL", "ENTREZID", "GENENAME"))
+Fung.gene <- as.data.frame(Fung.pro.gene)$SYMBOL
+
+Fung.name.pro.gene <- select(hgu133a2.db, Fung.name, c("SYMBOL", "ENTREZID", "GENENAME"))
+Fung.name.gene <- as.data.frame(Fung.name.pro.gene)$SYMBOL
+
+significant.gene5 <- data.frame(Viral,viral.gene, Viral.name, Viral.name.gene, Bact,Bact.gene,
+                                Bact.name,Bact.name.gene, Fung,Fung.gene,Fung.name,Fung.name.gene)
+options(xtable.comment = FALSE)
+significant.gene5 <- xtable(significant.gene5,caption = "Map probes to genes")
+print(significant.gene5,scalebox = 0.7)
+```
+
+Use Venn Graph to show significant common genes
+```{r, message=F, warning=F}
+#consider FDR < 5%
+DECIDE<-decideTests(fit3[,2:4],method="separate",adjust.method="BH",p.value=
+                      0.05,lfc=0)
+
+a <- vennCounts(DECIDE, include="both")
+vennDiagram(a, include=c("both"),
+            counts.col=c("red"),
+            circle.col = c("red", "blue", "green3"),main="Venn Diagram for significant genes")
+```
+
+Extract names for common genes if needed and check out the result is correct or not.
+```{r, message=F, warning=F}
+#extract names for the common gene
+#significant common genes for viral and bacterial and fungal
+Genes.3 <- which(DECIDE[,1]==1 & DECIDE[,2]==1 & DECIDE[,3]==1)
+Genes.3 <- DECIDE[Genes.3,]
+Genes.common <- row.names(Genes.3)
+
+#significant common genes only for viral and bacterial
+Genes.v.b <- which(DECIDE[,1]==1 & DECIDE[,2]==1 & DECIDE[,3]==0)
+Genes.v.b <- DECIDE[Genes.v.b,]
+Genes.v.b <- row.names(Genes.v.b)
+
+#significant common genes only for viral and fungal
+Genes.v.f <- which(DECIDE[,1]==1 & DECIDE[,2]==0 & DECIDE[,3]==1)
+Genes.v.f <- DECIDE[Genes.v.f,]
+Genes.v.f <- row.names(Genes.v.f)
+
+#significant common genes only for bacterial and fungal
+Genes.b.f <- which(DECIDE[,1]==0 & DECIDE[,2]==1 & DECIDE[,3]==1)
+Genes.b.f <- DECIDE[Genes.b.f,]
+Genes.b.f <- row.names(Genes.b.f)
+
+
+#check correct or not
+c1 <- topTable(fit3,coef=2,adjust.method="BH",number = 22277)
+sum(c1$adj.P.Val < 0.05)
+583+92+113+246
+
+c2 <- topTable(fit3,coef=3,adjust.method="BH",number = 22277)
+sum(c2$adj.P.Val < 0.05)
+1214+2113+113+246
+
+c3 <- topTable(fit3,coef=4,adjust.method="BH",number = 22277)
+sum(c3$adj.P.Val < 0.05)
+2113+246+92+1633
+```
+
+*Then try to find the top 20 genes of each infection group and draw a heat map of the gene expression here*
+```{r, message=F, warning=F}
+#find the top 20 results of each type
+c120 <- topTable(fit3,coef=2,adjust.method="BH",number=20) #for Viral
+probeID.v <- c120$ID
+c220 <- topTable(fit3,coef=3,adjust.method="BH",number=20) #for Bacterial
+probeID.b <- c220$ID
+c320 <- topTable(fit3,coef=4,adjust.method="BH",number=20) #for Fungal
+probeID.f <- c320$ID
+probeID <- c(probeID.v,probeID.b,probeID.f)
+probeID <- unique(probeID)
+
+#top genes
+heat.gene <- gcrma[probeID,]
+#Shortname for each class
+#divide them into different catagories
+#Uninfected
+uninf <- key[key$PertubationClass=="none",]
+uninf.name <- uninf$ShortName
+#Viral
+Viral <- key[key$PertubationClass=="Viral",]
+Viral.name <- Viral$ShortName
+#Bacterial
+Bact <- key[key$PertubationClass=="Bacterial",]
+Bact.name <- Bact$ShortName 
+#Fungal
+fungal <- key[key$PertubationClass=="Fungal",]
+fungal.name <- fungal$ShortName
+
+col.class <- rep("blue",54) #fungal
+col.class[uninf.name] <- "grey"
+col.class[Viral.name] <- "red"
+col.class[Bact.name] <- "purple"
+
+heatmap.2(heat.gene, col=redgreen(75), scale="row",key=TRUE, 
+          symkey=FALSE, density.info="none", trace="none", cexRow=0.5,
+          ColSideColors = col.class)
+
+par(new = TRUE)
+par(fig=c(0, 1, 0, 1), oma=c(0, 0, 0, 0), mar=c(0, 0, 0, 0), new=TRUE)
+
+plot.new()
+legend(x=0,y=1,
+       legend=c("No infection","Viral","Bacteria","Fungal"),
+       fill =c('grey','red','purple','blue'),inset=c(-0.2,0),cex=0.4)
+```
+
+Here we want to add name to the model with no intercept and check out the result is consistent or not.We still consider limma including name as blocking factor.
+```{r, message=F, warning=F}
+#consider limma including name as blocking factor
+#mix effect model
+block <- key$name
+design3 <- model.matrix(~0+factor(key$PertubationClass,levels=
+                                    c("none","Viral","Bacterial","Fungal")))
+
+colnames(design3) <- c("none","Viral","Bacterial","Fungal")
+
+dupcor <- duplicateCorrelation(frame.gcrma,design3,block=block)
+
+fit3 <- lmFit(frame.gcrma,design3,block=block,correlation=dupcor$consensus)
+
+
+cont.matrix3<- makeContrasts(viral=Viral-none, bacteria=Bacterial-none, fungal= Fungal-none, 
+                             levels=design3)
+
+fit3c <- contrasts.fit(fit3, cont.matrix3)
+fit3c <- eBayes(fit3c)
+
+
+DECIDE<-decideTests(fit3c,method="separate",adjust.method="BH",p.value=
+                      0.05,lfc=0)
+
+a <- vennCounts(DECIDE, include="both")
+vennDiagram(a, include=c("both"),
+            counts.col=c("red"),
+            circle.col = c("red", "blue", "green3"),main="Venn Diagram for significant genes")
+
+```
+
+*Then try to find the top 20 genes of each infection group and draw a heat map of the gene expression here*
+```{r, message=F, warning=F}
+c120 <- topTable(fit3c,coef=1,adjust.method="BH",number=20) #for Viral
+probeID.v <- c120$ID
+c220 <- topTable(fit3c,coef=2,adjust.method="BH",number=20) #for Bacterial
+probeID.b <- c220$ID
+c320 <- topTable(fit3c,coef=3,adjust.method="BH",number=20) #for Fungal
+probeID.f <- c320$ID
+
+probeID.v
+probeID.b 
+probeID.f
+
+probeID <- c(probeID.v,probeID.b,probeID.f)
+probeID <- unique(probeID)
+
+#top genes
+heat.gene <- gcrma[probeID,]
+
+col.class <- rep("blue",54) #fungal
+col.class[uninf.name] <- "grey"
+col.class[Viral.name] <- "red"
+col.class[Bact.name] <- "purple"
+
+heatmap.2(heat.gene, col=redgreen(75), scale="row",key=TRUE, 
+          symkey=FALSE, density.info="none", trace="none", cexRow=0.5,
+          ColSideColors = col.class)
+```
+
+
+Then we use boxplot to find out the Top two gene for each infection type.
+```{r, message=F, warning=F}
+#for viral
+topTable(fit3c,coef=1,adjust.method="BH",number = 2)[,1]
+#for Bacteria
+topTable(fit3c,coef=2,adjust.method="BH",number = 2)[,1] 
+#for fungal
+topTable(fit3c,coef=3,adjust.method="BH",number = 2)[,1]
+
+
+
+#Since we use contrast here, no significant gene for none
+uninf <- key[key$PertubationClass=="none",]
+uninf.name <- uninf$ShortName
+#Viral
+Viral <- key[key$PertubationClass=="Viral",]
+Viral.name <- Viral$ShortName
+#Bacterial
+Bact <- key[key$PertubationClass=="Bacterial",]
+Bact.name <- Bact$ShortName 
+#Fungal
+fungal <- key[key$PertubationClass=="Fungal",]
+fungal.name <- fungal$ShortName
+```
+
+For Viral:
+```{r, message=F, warning=F}
+#for viral
+#for "203299_s_at"
+v1 <- gcrma[rownames(gcrma)=="203299_s_at",]
+v1.un <- v1[uninf.name]
+v1.vi <- v1[Viral.name]
+v1.bact <- v1[Bact.name]
+v1.fung <- v1[fungal.name]
+
+v1.a <- data.frame(group = "uninfected", value = v1.un)
+v1.b <- data.frame(group = "viral", value = v1.vi)
+v1.c <- data.frame(group = "bacteria", value = v1.bact)
+v1.d <- data.frame(group = "fungal", value = v1.fung)
+# Combine into one long data frame
+plot.data <- rbind(v1.a, v1.b, v1.c,v1.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "203299_s_at of Viral")
+
+#for "217868_s_at"
+v2 <- gcrma[rownames(gcrma)=="217868_s_at",]
+v2.un <- v1[uninf.name]
+v2.vi <- v1[Viral.name]
+v2.bact <- v1[Bact.name]
+v2.fung <- v1[fungal.name]
+
+v2.a <- data.frame(group = "uninfected", value = v2.un)
+v2.b <- data.frame(group = "viral", value = v2.vi)
+v2.c <- data.frame(group = "bacteria", value = v2.bact)
+v2.d <- data.frame(group = "fungal", value = v2.fung)
+# Combine into one long data frame
+plot.data <- rbind(v2.a, v2.b, v2.c,v2.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "217868_s_at of Viral")
+```
+
+For Bacteria:
+```{r, message=F, warning=F}
+#for Bacteria
+#for "208598_s_at"
+b1 <- gcrma[rownames(gcrma)=="208598_s_at",]
+b1.un <- b1[uninf.name]
+b1.vi <- b1[Viral.name]
+b1.bact <- b1[Bact.name]
+b1.fung <- b1[fungal.name]
+
+b1.a <- data.frame(group = "uninfected", value = b1.un)
+b1.b <- data.frame(group = "viral", value = b1.vi)
+b1.c <- data.frame(group = "bacteria", value = b1.bact)
+b1.d <- data.frame(group = "fungal", value = b1.fung)
+# Combine into one long data frame
+plot.data <- rbind(b1.a, b1.b, b1.c,b1.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "208598_s_at of Bacteria")
+
+
+
+#for "205748_s_at"
+b2 <- gcrma[rownames(gcrma)=="205748_s_at",]
+b2.un <- b2[uninf.name]
+b2.vi <- b2[Viral.name]
+b2.bact <- b2[Bact.name]
+b2.fung <- b2[fungal.name]
+
+b2.a <- data.frame(group = "uninfected", value = b2.un)
+b2.b <- data.frame(group = "viral", value = b2.vi)
+b2.c <- data.frame(group = "bacteria", value = b2.bact)
+b2.d <- data.frame(group = "fungal", value = b2.fung)
+# Combine into one long data frame
+plot.data <- rbind(b2.a, b2.b, b2.c,b2.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "205748_s_at of Bacteria")
+```
+
+For fungal
+```{r, message=F, warning=F}
+#for "209272_at" 
+f1 <- gcrma[rownames(gcrma)=="209272_at",]
+f1.un <- f1[uninf.name]
+f1.vi <- f1[Viral.name]
+f1.bact <- f1[Bact.name]
+f1.fung <- f1[fungal.name]
+
+f1.a <- data.frame(group = "uninfected", value = f1.un)
+f1.b <- data.frame(group = "viral", value = f1.vi)
+f1.c <- data.frame(group = "bacteria", value = f1.bact)
+f1.d <- data.frame(group = "fungal", value = f1.fung)
+# Combine into one long data frame
+plot.data <- rbind(f1.a, f1.b, f1.c,f1.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "209272_at of Fungal")
+
+
+#for "201546_at"
+f2 <- gcrma[rownames(gcrma)=="201546_at",]
+f2.un <- f2[uninf.name]
+f2.vi <- f2[Viral.name]
+f2.bact <- f2[Bact.name]
+f2.fung <- f2[fungal.name]
+
+f2.a <- data.frame(group = "uninfected", value = f2.un)
+f2.b <- data.frame(group = "viral", value = f2.vi)
+f2.c <- data.frame(group = "bacteria", value = f2.bact)
+f2.d <- data.frame(group = "fungal", value = f2.fung)
+# Combine into one long data frame
+plot.data <- rbind(f2.a, f2.b, f2.c,f2.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "201546_at of Fungal")
+```
+
+To double check the clusering of the viral infection and uninfected group. I do a heatmap of just the viral and none samples and genes.
+```{r, message=F, warning=F}
+#divide them into smaller catagories
+v.influ <- Viral[Viral$Pertubation=="Influenza",]
+v.poly <- Viral[Viral$Pertubation=="Poly I:C",]
+
+B.LPS <- Bact[Bact$Pertubation=="LPS",]
+B.st <- Bact[Bact$Pertubation=="St. Pneum",]
+B.coli <- Bact[Bact$Pertubation=="E. coli",]
+
+f.Cand <- fungal[fungal$Pertubation=="Candida",]
+f.neo <- fungal[fungal$Pertubation=="Crypt neo",]
+f.gatt <- fungal[fungal$Pertubation=="Crypt gatt",]
+
+c120 <- topTable(fit3c,coef=1,adjust.method="BH",number=20) #for Viral
+probeID.v <- c120$ID
+c220 <- topTable(fit3c,coef=2,adjust.method="BH",number=20) #for Bacterial
+probeID.b <- c220$ID
+c320 <- topTable(fit3c,coef=3,adjust.method="BH",number=20) #for Fungal
+probeID.f <- c320$ID
+
+probeID.v
+probeID.b 
+probeID.f
+
+probeID <- c(probeID.v,probeID.b,probeID.f)
+probeID <- unique(probeID)
+
+
+heat.gene3 <- gcrma[probeID.v,c(uninf.name,v.influ$ShortName,v.poly$ShortName)]
+col.class3 <- rep(NA,length(c(uninf.name,Viral.name))) #non infection
+col.class3[uninf.name] <- "red"
+col.class3[v.influ$ShortName] <- "grey"
+col.class3[v.poly$ShortName] <- "purple"
+
+heatmap.2(heat.gene3, col=redgreen(75), scale="row",key=TRUE, 
+          symkey=FALSE, density.info="none", trace="none", cexRow=0.5,
+          ColSideColors = c(rep("red",6),rep("grey",6),rep("purple",6)))
+#grey for influenza
+#red for uninfected
+#purple for poly
+
+par(new = TRUE)
+par(fig=c(0, 1, 0, 1), oma=c(0, 0, 0, 0), mar=c(0, 0, 0, 0), new=TRUE)
+plot.new()
+legend(x=0,y=1,
+       legend=c("uninfected","influenza","Poly I:C"),
+       fill =c('red','grey','purple'),inset=c(-0.2,0),cex=0.4)
+```
+
+Cross Validation to show the performance of each fold.
+Here we use LOOCV
+```{r, message=F, warning=F}
+library("glmnet")
+library("ROCR")
+library("pROC")
+set.seed(123)
+auc.pre <- function(k)
+{
+  RowVar <- function(x) 
+  { 
+    rowSums((x - rowMeans(x))^2)/(dim(x)[2] - 1) 
+  }
+  XX <- gcrma[order( RowVar(gcrma), decreasing = TRUE )[1:1000],key$name != k]
+  x <- gcrma[order( RowVar(gcrma), decreasing = TRUE )[1:1000],key$name == k]
+  pred.y <- key$PertubationClass[key$name!= k]
+  # run cross-validation
+  # add type.measure = 'auc' or not
+  lmo_cv <- cv.glmnet(t(XX),pred.y,alpha = 1, standardize = TRUE, family = "multinomial", 
+                      nfolds = 10,type.measure = 'auc')
+  #fit the model
+  lmo <- glmnet(t(XX),pred.y, alpha = 1, standardize = TRUE, family = "multinomial",
+                lambda =lmo_cv$lambda.min)
+  
+  #use glmnet to have a new model
+  #and then predict to see the performance
+  rep1 <- predict(lmo,t(x),type="response",s = 'lambda.min')
+  rep2 <- predict(lmo,t(x),type="class",s = 'lambda.min')
+  design <- model.matrix(~0+factor(key$PertubationClass[key$name==1],
+                                   levels=c("Bacterial","Fungal","none","Viral")))
+  colnames(design) <- c("Bacterial","Fungal","none","Viral")
+  roc.obj <- roc(c(design),c(rep1))
+  return(list(lmo = lmo,roc=roc.obj,output1=rep1,output2=rep2))
+}
+
+
+```
+
+#make a table to show the performance of each fold
+```{r, message=F, warning=F}
+knitr::opts_chunk$set(cache=TRUE)
+library(xtable)
+perform <- matrix(c(auc(auc.pre(1)$roc),auc(auc.pre(2)$roc),auc(auc.pre(3)$roc),auc(auc.pre(4)$roc),
+                    auc(auc.pre(5)$roc),auc(auc.pre(6)$roc)),6,1)
+rownames(perform) <- c("fold1","fold2","fold3","fold4","fold5","fold6")
+colnames(perform) <- c("AUC score")
+perform <- xtable(perform,caption = "AUC score for each fold")
+print(perform)
+```
+
+
+Boxplot of the 6 AUC value
+```{r, message=F, warning=F}
+boxplot(c(auc(auc.pre(1)$roc),auc(auc.pre(2)$roc),auc(auc.pre(3)$roc),auc(auc.pre(4)$roc),
+      auc(auc.pre(5)$roc),auc(auc.pre(6)$roc)),main="Boxplot of LOOCV AUC value")
+```
+
+
+Create table for significant gene in each fold
+```{r results = 'asis'}
+#create table for 6 folds
+#print gene for 6 folds
+#type = 1 for bacteria
+#type = 2 for fungal
+#type = 3 for none
+#type = 4 for Viral
+set.seed(123)
+gene.lmo <- function(k,type)
+{
+  coef <- coef(auc.pre(k)$lmo)
+  if(type==1)
+  {
+    coef.type <- coef$Bacterial
+  }
+  if(type==2)
+  {
+    coef.type <- coef$Fungal
+  }
+  if(type==3)
+  {
+    coef.type <- coef$none
+  }
+  if(type==4)
+  {
+    coef.type <- coef$Viral
+  }
+  fold.name <- names(coef.type[which(coef.type!=0),])[-1]
+  return(fold.name)
+}
+```
+
+For bacteria
+```{r, message=F, warning=F}
+knitr::opts_chunk$set(cache=TRUE)
+library(pander)
+fold1.bact <- gene.lmo(k=1,type=1)
+fold2.bact <- gene.lmo(k=2,type=1)
+fold3.bact <- gene.lmo(k=3,type=1)
+fold4.bact <- gene.lmo(k=4,type=1)
+fold5.bact <- gene.lmo(k=5,type=1)
+fold6.bact <- gene.lmo(k=6,type=1)
+df.bact = list(fold1.bact=fold1.bact, fold2.bact=fold2.bact,fold3.bact=fold3.bact,
+               fold4.bact=fold4.bact,fold5.bact=fold5.bact,fold6.bact=fold6.bact)
+
+attributes(df.bact) = list(names = names(df.bact),
+                        row.names=1:max(length(fold1.bact), length(fold2.bact),
+                                        length(fold3.bact),length(fold4.bact),
+                                        length(fold5.bact),length(fold6.bact)), class='data.frame')
+
+pander(df.bact,caption = "Significant genes chosen from each fold by lasso for Bacteria")
+
+```
+
+For fungal
+```{r, message=F, warning=F}
+knitr::opts_chunk$set(cache=TRUE)
+fold1.fung <- gene.lmo(k=1,type=2)
+fold2.fung <- gene.lmo(k=2,type=2)
+fold3.fung <- gene.lmo(k=3,type=2)
+fold4.fung <- gene.lmo(k=4,type=2)
+fold5.fung <- gene.lmo(k=5,type=2)
+fold6.fung <- gene.lmo(k=6,type=2)
+df.fung <- list(fold1.fung=fold1.fung, fold2.fung=fold2.fung,fold3.fung=fold3.fung,
+               fold4.fung=fold4.fung, fold5.fung=fold5.fung,fold6.fung=fold6.fung)
+
+attributes(df.fung) <- list(names = names(df.fung),
+                           row.names=1:max(length(fold1.fung), length(fold2.fung),
+                                           length(fold3.fung),length(fold4.fung),
+                                           length(fold5.fung),length(fold6.fung)), 
+                           class='data.frame')
+pander(df.fung,caption = "Significant genes chosen from each fold by lasso for Fungal")
+
+```
+
+For No infection
+```{r, message=F, warning=F}
+knitr::opts_chunk$set(cache=TRUE)
+#for none
+fold1.none <- gene.lmo(k=1,type=3)
+fold2.none <- gene.lmo(k=2,type=3)
+fold3.none <- gene.lmo(k=3,type=3)
+fold4.none <- gene.lmo(k=4,type=3)
+fold5.none <- gene.lmo(k=5,type=3)
+fold6.none <- gene.lmo(k=6,type=3)
+df.none <- list(fold1.none=fold1.none, fold2.none=fold2.none,fold3.none=fold3.none,
+                fold4.none=fold4.none, fold5.none=fold5.none,fold6.none=fold6.none)
+
+attributes(df.none) <- list(names = names(df.none),
+                            row.names=1:max(length(fold1.none), length(fold2.none),
+                                            length(fold3.none),length(fold4.none),
+                                            length(fold5.none),length(fold6.none)), 
+                            class='data.frame')
+pander(df.none,caption = "Significant genes chosen from each fold by lasso for No Infection")
+```
+
+For Viral
+```{r, message=F, warning=F}
+knitr::opts_chunk$set(cache=TRUE)
+fold1.viral <- gene.lmo(k=1,type=4)
+fold2.viral <- gene.lmo(k=2,type=4)
+fold3.viral <- gene.lmo(k=3,type=4)
+fold4.viral <- gene.lmo(k=4,type=4)
+fold5.viral <- gene.lmo(k=5,type=4)
+fold6.viral <- gene.lmo(k=6,type=4)
+df.viral <- list(fold1.viral=fold1.viral, fold2.viral=fold2.viral,fold3.viral=fold3.viral,
+                fold4.viral=fold4.viral, fold5.viral=fold5.viral,fold6.viral=fold6.viral)
+
+attributes(df.viral) <- list(names = names(df.viral),
+                            row.names=1:max(length(fold1.viral), length(fold2.viral),
+                                            length(fold3.viral),length(fold4.viral),
+                                            length(fold5.viral),length(fold6.viral)), 
+                            class='data.frame')
+pander(df.viral,caption = "Significant genes chosen from each fold by lasso for Viral")
+```
+
+Construct confusion matrix
+```{r, message=F, warning=F}
+#confusion matrix
+confus <- function(k)
+{
+  true.class <- key$PertubationClass[key$name==k]
+  pred.class <- auc.pre(k)$output2[,1]
+  confusion <- confusionMatrix(pred.class, true.class)
+  return(confusion)
+}
+
+#for fold1
+confus1 <- confus(1)
+confus1$table
+
+#for fold2
+confus2 <- confus(2)
+confus2$table
+
+#for fold3
+confus3 <- confus(3)
+confus3$table
+
+#for fold4
+confus4 <- confus(4)
+confus4$table
+
+#for fold5
+confus5 <- confus(5)
+confus5$table
+
+#for fold6
+confus6 <- confus(6)
+confus6$table
+```
+
+
+Accuracy Summarize in 6 fold
+```{r results = 'asis'}
+knitr::opts_chunk$set(cache=TRUE)
+summ.confus.accuracy <- rbind(confus1$byClass[,11],confus2$byClass[,11],confus3$byClass[,11],
+      confus4$byClass[,11],confus5$byClass[,11],confus6$byClass[,11])
+summ.confus.accuracy <- summ.confus.accuracy[,c(3,1,2,4)]
+rownames(summ.confus.accuracy) <- c("fold1","fold2","fold3","fold4","fold5","fold6")
+colnames(summ.confus.accuracy) <- c("No Infection","Bacteria", "Fungal","Viral")
+options(xtable.comment = FALSE)
+summ.confus.accuracy <- xtable(summ.confus.accuracy,caption = "Accuracy Summarize in 6 fold")
+print(summ.confus.accuracy,scalebox = 0.7)
+```
+
+scatter plots of predicted probabilities, grouped by class
+```{r results = 'asis'}
+sum.fig <- melt(summ.confus.accuracy)
+ggplot(data=sum.fig,aes(x=variable, y=value,colour = variable)) + 
+  geom_point()+labs(x = "Infection Group", y = "Predicted Probability") +
+  ggtitle("Scatter plot of Predicted Probability by Infection Group")
+```
+
+
+**Do a version of the differential expression analysis testing viral vs all others,non vs all others, etc...**
+For all others vs none
+```{r results = 'asis'}
+knitr::opts_chunk$set(cache=TRUE)
+#for all others vs none
+block <- key$name
+design <- model.matrix(~0+factor(key$PertubationClass,levels=
+                                    c("none","Viral","Bacterial","Fungal")))
+colnames(design) <- c("none","Viral","Bacterial","Fungal")
+dupcor <- duplicateCorrelation(frame.gcrma,design,block=block)
+fit <- lmFit(frame.gcrma,design,block=block,correlation=dupcor$consensus)
+cont.matrix.a<- makeContrasts(viral=Viral-none, bacteria=Bacterial-none, fungal= Fungal-none,
+                             levels=design)
+fita.fi <- contrasts.fit(fit, cont.matrix.a)
+fita.fi <- eBayes(fita.fi)
+
+
+topa.vi <- topTable(fita.fi,coef=1,adjust.method="BH")$ID   #for viral
+topa.bact <- topTable(fita.fi,coef=2,adjust.method="BH")$ID  #for Bacteria
+topa.fung <- topTable(fita.fi,coef=3,adjust.method="BH")$ID  #for fungal
+
+
+vi.genea <- select(hgu133a2.db, topa.vi, c("SYMBOL", "ENTREZID", "GENENAME"))[,2]
+bact.genea <-  select(hgu133a2.db, topa.bact, c("SYMBOL", "ENTREZID", "GENENAME"))[,2]
+fung.genea <- select(hgu133a2.db, topa.fung, c("SYMBOL", "ENTREZID", "GENENAME"))[,2]
+
+sig.genea <- data.frame(topa.vi,vi.genea,topa.bact,bact.genea,topa.fung,fung.genea)
+#significant gene comparing infection group to no infection
+colnames(sig.genea) <- c("Probe name of Viral","Gene name of Viral","Probe name of Bacteria",
+                         "Gene name of Bacteria","Probe name of Fungal","Gene name of Fungal")
+
+options(xtable.comment = FALSE)
+sig.genea <- xtable(sig.genea,caption = "Significant gene comparing infection group to no infection")
+print(sig.genea,scalebox = 0.7)
+```
+
+For viral vs all others
+```{r results = 'asis'}
+knitr::opts_chunk$set(cache=TRUE)
+cont.matrix.b<- makeContrasts(vi.no=Viral-none, vi.bact=Viral-Bacterial, vi.fung= Viral-Fungal,
+                              levels=design)
+fitb.fi <- contrasts.fit(fit, cont.matrix.b)
+fitb.fi <- eBayes(fitb.fi)
+
+
+topb.vi.none <- topTable(fitb.fi,coef=1,adjust.method="BH")$ID   #for viral vs none
+topb.vi.bact <- topTable(fitb.fi,coef=2,adjust.method="BH")$ID  #for viral vs Bacteria
+topb.vi.fung <- topTable(fitb.fi,coef=3,adjust.method="BH")$ID  #for viral vs fungal
+
+
+vi.none.geneb <- select(hgu133a2.db,topb.vi.none, c("SYMBOL", "ENTREZID", "GENENAME"))[,2]
+vi.bact.geneb <-  select(hgu133a2.db,topb.vi.bact, c("SYMBOL", "ENTREZID", "GENENAME"))[,2]
+vi.fung.geneb <- select(hgu133a2.db,topb.vi.fung, c("SYMBOL", "ENTREZID", "GENENAME"))[,2]
+
+sig.geneb <- data.frame(topb.vi.none,vi.none.geneb,topb.vi.bact,vi.bact.geneb,
+                        topb.vi.fung,vi.fung.geneb)
+colnames(sig.geneb) <- c("Probe name of Viral vs None","Gene name of Viral vs None",
+                         "Probe name of Viral vs Bacteria","Gene name of Viral vs Bacteria",
+                         "Probe name of Viral vs Fungal","Gene name of Viral vs Fungal")
+options(xtable.comment = FALSE)
+sig.geneb <- xtable(sig.geneb,caption = "Significant gene comparing Viral infection group to all others")
+print(sig.geneb,scalebox = 0.7)
+```
+
+For Bacteria vs all others
+```{r results = 'asis'}
+knitr::opts_chunk$set(cache=TRUE)
+cont.matrix.c<- makeContrasts(bact.no=Bacterial-none, bact.vi=Bacterial-Viral, 
+                              bact.fung= Bacterial-Fungal,
+                              levels=design)
+
+fitc.fi <- contrasts.fit(fit, cont.matrix.c)
+fitc.fi <- eBayes(fitc.fi)
+
+
+topc.bact.none <- topTable(fitc.fi,coef=1,adjust.method="BH")$ID   #for bacteria vs none
+topc.bact.vi <- topTable(fitc.fi,coef=2,adjust.method="BH")$ID  #for bacteria vs viral
+topc.bact.fung <- topTable(fitc.fi,coef=3,adjust.method="BH")$ID  #for bacteria vs fungal
+
+
+bact.none.genec <- select(hgu133a2.db,topc.bact.none, c("SYMBOL", "ENTREZID", "GENENAME"))[,2]
+bact.vi.genec <-  select(hgu133a2.db,topc.bact.vi, c("SYMBOL", "ENTREZID", "GENENAME"))[,2]
+bact.fung.genec <- select(hgu133a2.db,topc.bact.fung, c("SYMBOL", "ENTREZID", "GENENAME"))[,2]
+
+sig.genec <- data.frame(topc.bact.none,bact.none.genec,
+                        topc.bact.vi,bact.vi.genec,
+                        topc.bact.fung,bact.fung.genec)
+
+colnames(sig.genec) <- c("Probe name of Bacteria vs None","Gene name of Bacteria vs None",
+                         "Probe name of Bacteria vs Viral","Gene name of Bacteria vs Viral",
+                         "Probe name of Bacteria vs Fungal","Gene name of Bacteria vs Fungal")
+options(xtable.comment = FALSE)
+sig.genec <- xtable(sig.genec,caption = "Significant gene comparing Bacteria infection group to all others")
+print(sig.genec,scalebox = 0.7)
+```
+
+For Fungal vs all others
+```{r results = 'asis'}
+knitr::opts_chunk$set(cache=TRUE)
+cont.matrix.d<- makeContrasts(fung.no=Fungal-none, fung.bact=Fungal-Bacterial, 
+                              fung.vi= Fungal-Viral,
+                              levels=design)
+
+fitd.fi <- contrasts.fit(fit, cont.matrix.d)
+fitd.fi <- eBayes(fitd.fi)
+
+
+topd.fung.none <- topTable(fitd.fi,coef=1,adjust.method="BH")$ID   #for fungal vs none
+topd.fung.bact <- topTable(fitd.fi,coef=2,adjust.method="BH")$ID  #for fungal vs Bacteria
+topd.fung.vi <- topTable(fitd.fi,coef=3,adjust.method="BH")$ID  #for fungal vs viral
+
+
+fung.none.gened <- select(hgu133a2.db,topd.fung.none, c("SYMBOL", "ENTREZID", "GENENAME"))[,2]
+fung.bact.gened <-  select(hgu133a2.db,topd.fung.bact, c("SYMBOL", "ENTREZID", "GENENAME"))[,2]
+fung.vi.gened <- select(hgu133a2.db,topd.fung.vi, c("SYMBOL", "ENTREZID", "GENENAME"))[,2]
+
+sig.gened <- data.frame(topd.fung.none,fung.none.gened,
+                        topd.fung.bact,fung.bact.gened,
+                        topd.fung.vi,fung.vi.gened)
+
+colnames(sig.gened) <- c("Probe name of Fungal vs None","Gene name of Fungal vs None",
+                         "Probe name of Fungal vs Bacteria","Gene name of Fungal vs Bacteria",
+                         "Probe name of Fungal vs Viral","Gene name of Fungal vs Viral")
+
+options(xtable.comment = FALSE)
+sig.gened <- xtable(sig.gened,caption = "Significant gene comparing Bacteria infection group to all others")
+print(sig.gened,scalebox = 0.7)
+```
+
+Add a boxplot to PCA
+```{r results = 'asis'}
+#boxplot of PCA result
+#PCA
+#PCA of the gcrma normalized data
+#from the graph we can conclude that there may be no outlier here
+par(mfrow=c(1,1))
+data.PC = prcomp(t(frame.gcrma))
+#group <- as.fumeric(key$name)
+col.class <- rep("blue",54) #Candida
+col.class[key$Pertubation=="Crypt gatt"] <- "grey"
+col.class[key$Pertubation=="Crypt neo"] <- "red"
+col.class[key$Pertubation=="E. coli"] <- "purple"
+col.class[key$Pertubation=="Influenza"] <- "light blue"
+col.class[key$Pertubation=="LPS"] <- "black"
+col.class[key$Pertubation=="Poly I:C"] <- "pink"
+col.class[key$Pertubation=="St. Pneum"] <- "orange"
+col.class[key$Pertubation=="Uninfected"] <- "yellow"
+
+plot(data.PC$x[, 1], data.PC$x[, 2],col=col.class, 
+     main = "PCA of Pertubation", xlab = "PC1", ylab = "PC2",pch=16,cex=0.8)
+legend("bottomleft",
+       legend=c("Candida","Crypt gatt", "Crypt neo", "E. coli", "Influenza","LPS", "Poly I:C", "St. Pneum",
+                "Uninfected"),
+       col =c("blue","grey","red","purple","light blue","black","pink","orange","yellow"),
+       inset=.02,cex=0.6,pch=16)
+
+
+#PCA color by infection type
+#PCA
+#PCA of the gcrma normalized data
+#from the graph we can conclude that there may be no outlier here
+data.PC = prcomp(t(frame.gcrma))
+#group <- as.fumeric(key$name)
+cols <- as.factor(key$PertubationClass)
+plot(data.PC$x[, 1], data.PC$x[, 2],col=cols, 
+     main = "PCA by Infection Type", xlab = "PC1", ylab = "PC2",pch=16,cex=0.8)
+legend("bottomleft",
+       legend=c("Bacterial","Fungal", "none", "Viral"),
+       col =1:4,inset=.02,cex=0.4,pch=16)
+
+
+#add a boxplot for PC1 and PC2 after the PCA plot
+Pertubation_Class <- factor(key$PertubationClass)
+data.PC <- prcomp(t(frame.gcrma))
+melt.1 <- cbind(Pertubation_Class, melt(data.PC$x[,1:2]))
+ggplot(data=melt.1) +
+  geom_bar(aes(x=Pertubation_Class, y=value, fill=Pertubation_Class), stat="identity") +
+  facet_wrap(~X2)
+```
+
+WGCNA explore
+```{r results = 'asis'}
+library("BiocGenerics")
+library(ape)
+library("WGCNA")
+library("lme4")
+
+#1 Assembly and preprocessing of TCGA RNAseq data
+#transpose matrix to correlate genes in the following
+#A large fraction of genes are not differentially expressed between samples. 
+#These have to be excluded from WGCNA, as two genes without notable variance 
+#in expression between patients will be highly correlated.
+WGCNA_matrix <- t(gcrma[order(apply(gcrma,1,mad), decreasing = T)[1:5000],])
+
+
+#2.Construction of co-expression network
+#similarity measure between gene profiles: biweight midcorrelation
+s <- abs(bicor(WGCNA_matrix))
+
+powers = c(c(1:10), seq(from = 12, to=20, by=2))
+sft = pickSoftThreshold(WGCNA_matrix, powerVector = powers, verbose = 5)
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     xlab='Soft Threshold (power)',ylab='Scale Free Topology Model Fit,signed R^2',
+     type='n', main = paste('Scale independence'));
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     labels=powers,cex=1,col='red'); abline(h=0.90,col='red')
+
+
+#a beta value of 9 was the lowest power for which the scale-free topology 
+#fit index curve flattens out upon reaching a high value 
+#(R2R2 0.9 as suggested by Langfelder and Horvarth).
+
+#calculation of adjacency matrix
+beta = 9
+a = s^beta
+
+#dissimilarity measure
+w = 1-a
+
+#create gene tree by average linkage hierarchical clustering 
+geneTree = hclust(as.dist(w), method = 'average')
+
+#module identification using dynamic tree cut algorithm
+modules = cutreeDynamic(dendro = geneTree, distM = w, deepSplit = 4, pamRespectsDendro = FALSE,
+                        minClusterSize = 30)
+
+#assign module colours
+module.colours = labels2colors(modules)
+
+#plot the dendrogram and corresponding colour bars underneath
+plotDendroAndColors(geneTree, module.colours, 'Module colours', dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05, main='')
+
+
+#The relation between the identified co-expression modules can be visualized by a 
+#dendrogram of their eigengenes (fig. 3). The module eigengene is defined as the first 
+#principal component of its expression matrix. 
+#It could be shown that the module= eigengene is highly correlated 
+#with the gene that has the highest intramodular connectivity.
+#calculate eigengenes
+MEs = moduleEigengenes(WGCNA_matrix, colors = module.colours, excludeGrey = FALSE)$eigengenes
+
+
+#calculate dissimilarity of module eigengenes
+MEDiss = 1-cor(MEs)
+
+#cluster module eigengenes
+METree = hclust(as.dist(MEDiss), method = 'average')
+
+
+plot(METree, main = "Clustering of module eigengenes", xlab = "", sub = "") 
+
+#from the clutering
+#cluster 1
+METree$labels[METree$order][1:13]
+
+#cluster2
+METree$labels[METree$order][14:33]
+
+#cluster3
+METree$labels[METree$order][34:39]
+
+#cluster4
+METree$labels[METree$order][40:58]
+
+#choose the most significant module from each cluster
+pertu_number <- as.numeric(factor(key$PertubationClass,
+                                  levels=c("none","Viral","Bacterial","Fungal")))
+
+
+
+GS1=as.numeric(cor(pertu_number,WGCNA_matrix, use="p"))
+GeneSignificance=abs(GS1)
+ModuleSignificance=tapply(GeneSignificance, module.colours, mean, na.rm=T)
+
+par(mfrow = c(1,1))
+plotModuleSignificance(GeneSignificance,module.colours)
+```
+
+choose significant module
+```{r results = 'asis'}
+#choose top2 from each module
+#cluster1
+sort(ModuleSignificance[METree$order][1:13],decreasing = TRUE)
+#grey60   lightsteelblue1
+
+#cluster2
+sort(ModuleSignificance[METree$order][14:33],decreasing = TRUE)
+#lavenderblush3  darkred
+
+
+#cluster3
+sort(ModuleSignificance[METree$order][34:39],decreasing = TRUE)
+#skyblue3 ivory
+
+#cluster4
+sort(ModuleSignificance[METree$order][40:58],decreasing = TRUE)
+#turquoise brown
+
+#Use Intramodular connectivity
+ADJ1=abs(cor(WGCNA_matrix,use="p"))^6
+Alldegrees1=intramodularConnectivity(ADJ1, module.colours)
+head(Alldegrees1)
+
+
+datKME=signedKME(WGCNA_matrix, MEs)
+head(datKME)
+
+
+#for cluster1
+#grey60   
+FilterGenes11= abs(GS1)> .75 & abs(datKME$kMEgrey60)>0.95
+table(FilterGenes11)
+colnames(WGCNA_matrix)[FilterGenes11]
+
+#lightsteelblue1
+FilterGenes12= abs(GS1)> .75 & abs(datKME$kMElightsteelblue1)>0.9
+table(FilterGenes12)
+colnames(WGCNA_matrix)[FilterGenes12]
+
+#for cluster2
+#lavenderblush3  
+FilterGenes21= abs(GS1)> .7 & abs(datKME$kMElavenderblush3)>0.7
+table(FilterGenes21)
+colnames(WGCNA_matrix)[FilterGenes21]
+
+#darkred
+FilterGenes22= abs(GS1)> .7 & abs(datKME$kMEdarkred)>0.7
+table(FilterGenes22)
+colnames(WGCNA_matrix)[FilterGenes22]
+
+
+#for cluster3
+#skyblue3 
+FilterGenes31= abs(GS1)> .7 & abs(datKME$kMEskyblue3)>0.7
+table(FilterGenes31)
+colnames(WGCNA_matrix)[FilterGenes31]
+#ivory
+FilterGenes32= abs(GS1)> .7 & abs(datKME$kMEivory)>0.7
+table(FilterGenes32)
+colnames(WGCNA_matrix)[FilterGenes32]
+
+
+#cluster4
+#turquoise 
+FilterGenes41= abs(GS1)> .75 & abs(datKME$kMEturquoise)>0.95
+table(FilterGenes41)
+colnames(WGCNA_matrix)[FilterGenes41]
+#brown
+FilterGenes42= abs(GS1)> .75 & abs(datKME$kMEbrown)>0.9
+table(FilterGenes42)
+colnames(WGCNA_matrix)[FilterGenes42]
+
+
+## generalized linear mixed model
+pertu_number <- as.numeric(factor(key$PertubationClass,
+                                  levels=c("none","Viral","Bacterial","Fungal")))
+
+#no infection vs all others
+pertu_number.none <- ifelse(pertu_number==1,1,0)
+
+gm.none <- glmer(pertu_number.none ~ MEs$MEgrey60 +
+                   MEs$MElavenderblush3 +
+                   MEs$MEskyblue3 +
+                   MEs$MEturquoise +
+                   (1|key$name),data = MEs, family = binomial)
+summary(gm.none)
+
+#gm2 <- glmer(pertu_number.none ~ MEs$MEgrey60 + MEs$MElightsteelblue1 +
+#        MEs$MElavenderblush3 + MEs$MEdarkred +
+#        MEs$MEskyblue3 + MEs$MEivory +
+#        MEs$MEturquoise + MEs$MEbrown +
+#        (1|key$name),data = MEs, family = binomial,maxit=1000)
+#summary(gm2)
+
+#MEturquoise  significant
+#cluster4
+#turquoise
+FilterGenes41= abs(GS1)> .75 & abs(datKME$kMEturquoise)>0.95
+table(FilterGenes41)
+sig.none <- cbind(colnames(WGCNA_matrix)[FilterGenes41],GS1[FilterGenes41])
+sig.none
+
+#for no infection
+#for turquoise
+v.no <- MEs[,colnames(MEs)=="MEturquoise"]
+v1.no.un <- v.no[uninf.name]
+v1.no.vi <- v.no[Viral.name]
+v1.no.bact <- v.no[Bact.name]
+v1.no.fung <- v.no[fungal.name]
+v1.no.a <- data.frame(group = "uninfected", value = v1.no.un)
+v1.no.b <- data.frame(group = "viral", value = v1.no.vi)
+v1.no.c <- data.frame(group = "bacteria", value = v1.no.bact)
+v1.no.d <- data.frame(group = "fungal", value = v1.no.fung)
+# Combine into one long data frame
+plot.data <- rbind(v1.no.a, v1.no.b, v1.no.c,v1.no.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "Module turquoise of No Infection")
+
+
+
+
+#viral vs all others
+
+pertu_number.viral <- ifelse(pertu_number==2,1,0)
+
+gm.viral <- glmer(pertu_number.viral ~ MEs$MEgrey60 + 
+                    MEs$MElavenderblush3 +
+                    MEs$MEskyblue3 +
+                    MEs$MEturquoise +
+                    (1|key$name),data = MEs, family = binomial)
+summary(gm.viral)
+
+
+#MEs$MEskyblue3  significant
+#for cluster3
+#skyblue3
+FilterGenes31= abs(GS1)> .65 & abs(datKME$kMEskyblue3)>0.7
+table(FilterGenes31)
+colnames(WGCNA_matrix)[FilterGenes31]
+sig.viral <- cbind(colnames(WGCNA_matrix)[FilterGenes31],GS1[FilterGenes31])
+sig.viral
+
+
+#for viral
+#for skyblue3
+v.vi <- MEs[,colnames(MEs)=="MEskyblue3"]
+v1.vi.un <- v.vi[uninf.name]
+v1.vi.vi <- v.vi[Viral.name]
+v1.vi.bact <- v.vi[Bact.name]
+v1.vi.fung <- v.vi[fungal.name]
+v1.vi.a <- data.frame(group = "uninfected", value = v1.vi.un)
+v1.vi.b <- data.frame(group = "viral", value = v1.vi.vi)
+v1.vi.c <- data.frame(group = "bacteria", value = v1.vi.bact)
+v1.vi.d <- data.frame(group = "fungal", value = v1.vi.fung)
+# Combine into one long data frame
+plot.data <- rbind(v1.vi.a, v1.vi.b, v1.vi.c,v1.vi.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "Module skyblue3 of Viral")
+
+#plot eigengene value
+
+
+
+
+#Bacteria vs all others
+
+pertu_number.bact <- ifelse(pertu_number==3,1,0)
+
+gm.bact <- glmer(pertu_number.bact ~ MEs$MEgrey60 + MEs$MElightsteelblue1 +
+                   MEs$MElavenderblush3 +
+                   MEs$MEskyblue3 +
+                   MEs$MEturquoise + 
+                   (1|key$name),data = MEs, family = binomial)
+summary(gm.bact)
+
+
+#for bacteria
+v.bact <- MEs[,colnames(MEs)=="MEgrey60"]
+v1.bact.un <- v.bact[uninf.name]
+v1.bact.vi <- v.bact[Viral.name]
+v1.bact.bact <- v.bact[Bact.name]
+v1.bact.fung <- v.bact[fungal.name]
+v1.bact.a <- data.frame(group = "uninfected", value = v1.bact.un)
+v1.bact.b <- data.frame(group = "viral", value = v1.bact.vi)
+v1.bact.c <- data.frame(group = "bacteria", value = v1.bact.bact)
+v1.bact.d <- data.frame(group = "fungal", value = v1.bact.fung)
+# Combine into one long data frame
+plot.data <- rbind(v1.bact.a, v1.bact.b, v1.bact.c,v1.bact.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "Module MEgrey60 of Bacteria")
+
+
+
+#for bactera
+#MElightsteelblue1
+v.bact <- MEs[,colnames(MEs)=="MElightsteelblue1"]
+v1.bact.un <- v.bact[uninf.name]
+v1.bact.vi <- v.bact[Viral.name]
+v1.bact.bact <- v.bact[Bact.name]
+v1.bact.fung <- v.bact[fungal.name]
+v1.bact.a <- data.frame(group = "uninfected", value = v1.bact.un)
+v1.bact.b <- data.frame(group = "viral", value = v1.bact.vi)
+v1.bact.c <- data.frame(group = "bacteria", value = v1.bact.bact)
+v1.bact.d <- data.frame(group = "fungal", value = v1.bact.fung)
+# Combine into one long data frame
+plot.data <- rbind(v1.bact.a, v1.bact.b, v1.bact.c,v1.bact.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "Module lightsteelblue1 of Bacteria")
+
+
+
+#for fungal
+
+pertu_number.bact <- ifelse(pertu_number==4,1,0)
+
+gm.fung <- glmer(pertu_number.bact ~ MEs$MEgrey60 + MEs$MElightsteelblue1 +
+                   MEs$MElavenderblush3 + 
+                   MEs$MEskyblue3 +
+                   MEs$MEturquoise + MEs$MEbrown +
+                   (1|key$name),data = MEs, family = binomial)
+summary(gm.fung)
+
+
+#for fung
+#MElightsteelblue1
+v.fung <- MEs[,colnames(MEs)=="MElightsteelblue1"]
+v1.fung.un <- v.fung[uninf.name]
+v1.fung.vi <- v.fung[Viral.name]
+v1.fung.bact <- v.fung[Bact.name]
+v1.fung.fung <- v.fung[fungal.name]
+v1.fung.a <- data.frame(group = "uninfected", value = v1.fung.un)
+v1.fung.b <- data.frame(group = "viral", value = v1.fung.vi)
+v1.fung.c <- data.frame(group = "bacteria", value = v1.fung.bact)
+v1.fung.d <- data.frame(group = "fungal", value = v1.fung.fung)
+# Combine into one long data frame
+plot.data <- rbind(v1.fung.a, v1.fung.b, v1.fung.c,v1.fung.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "Module lightsteelblue1 of Fungal")
+
+
+#for fung
+#MEturquoise
+v.fung <- MEs[,colnames(MEs)=="MEturquoise"]
+v1.fung.un <- v.fung[uninf.name]
+v1.fung.vi <- v.fung[Viral.name]
+v1.fung.bact <- v.fung[Bact.name]
+v1.fung.fung <- v.fung[fungal.name]
+v1.fung.a <- data.frame(group = "uninfected", value = v1.fung.un)
+v1.fung.b <- data.frame(group = "viral", value = v1.fung.vi)
+v1.fung.c <- data.frame(group = "bacteria", value = v1.fung.bact)
+v1.fung.d <- data.frame(group = "fungal", value = v1.fung.fung)
+# Combine into one long data frame
+plot.data <- rbind(v1.fung.a, v1.fung.b, v1.fung.c,v1.fung.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "Module turquoise of Fungal")
+
+
+#for fung
+#MEbrown
+v.fung <- MEs[,colnames(MEs)=="MEbrown"]
+v1.fung.un <- v.fung[uninf.name]
+v1.fung.vi <- v.fung[Viral.name]
+v1.fung.bact <- v.fung[Bact.name]
+v1.fung.fung <- v.fung[fungal.name]
+v1.fung.a <- data.frame(group = "uninfected", value = v1.fung.un)
+v1.fung.b <- data.frame(group = "viral", value = v1.fung.vi)
+v1.fung.c <- data.frame(group = "bacteria", value = v1.fung.bact)
+v1.fung.d <- data.frame(group = "fungal", value = v1.fung.fung)
+# Combine into one long data frame
+plot.data <- rbind(v1.fung.a, v1.fung.b, v1.fung.c,v1.fung.d)
+library(ggplot2)
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + geom_boxplot()+
+  labs(title = "Module brown of Fungal")
+
+```
+
+
+```{r results = 'asis'}
+adjacency = adjacency(WGCNA_matrix) 
+TOM = TOMsimilarity(adjacency)
+dissTOM = 1-TOM
+geneTree = hclust(as.dist(dissTOM), method = "average")
+minModuleSize = 30
+
+dynamicMods = cutreeDynamic(dendro = geneTree, 
+                            distM = dissTOM, deepSplit = 2,
+                            pamRespectsDendro = FALSE, 
+                            minClusterSize = minModuleSize)
+
+dynamicColors = module.colours
+
+table(dynamicColors)
+
+MEList = moduleEigengenes(WGCNA_matrix, colors = dynamicColors)
+
+MEs = MEList$eigengenes 
+MEDiss = 1-cor(MEs)
+
+METree = hclust(as.dist(MEDiss), method = "average")
+
+MEDissThres = 0.4
+
+#similarity measure between gene profiles: biweight midcorrelation
+#based on adjacant
+
+merge = mergeCloseModules(WGCNA_matrix, dynamicColors, cutHeight = MEDissThres, verbose = 3) 
+mergedColors = merge$colors
+mergedMEs = merge$newMEs
+plotDendroAndColors(geneTree, 
+                    cbind(dynamicColors, mergedColors), 
+                    c("Dynamic Tree Cut", "Merged dynamic"), 
+                    dendroLabels = FALSE, hang = 0.03, 
+                    addGuide = TRUE, guideHang = 0.05)
+
+
+#different module gene heatmap and key gene expression
+person= cor(WGCNA_matrix,use = 'p')
+
+corr<-TOM
+Colors<-mergedColors
+colnames(corr)<-colnames(WGCNA_matrix)
+rownames(corr)<-colnames(WGCNA_matrix)
+names(Colors)<-colnames(WGCNA_matrix)
+
+colnames(person)<-colnames(WGCNA_matrix)
+rownames(person)<-colnames(WGCNA_matrix)
+
+umc = unique(mergedColors)
+lumc = length(umc)
+
+for (i in c(1:lumc)){
+  if(umc[i]== "grey"){
+    next
+  }
+  ME=MEs[, paste("ME",umc[i], sep="")]
+  par(mfrow=c(2,1), mar=c(0.3, 5.5, 3, 2))
+  plotMat(t(scale(WGCNA_matrix[,Colors==umc[i]])),nrgcols=30,rlabels=F,rcols=umc[i], main=umc[i], cex.main=2)
+  par(mar=c(5, 4.2, 0, 0.7))
+  barplot(ME, col=umc[i], main="", cex.main=2,ylab="eigengene expression",xlab="array sample")
+}
+
+
+
+#for none infection
+no.GOenr <- GOenrichmentAnalysis(sig.none[,1],select(hgu133a2.db, sig.none[,1], 
+                                                     c("ENTREZID"))[,2])
+
+tab.none <- no.GOenr$bestPTerms[[4]]$enrichment
+
+
+#for viral infection
+vi.GOenr <- GOenrichmentAnalysis(sig.viral[,1],select(hgu133a2.db, sig.viral[,1], 
+                                                      c("ENTREZID"))[,2])
+
+tab.viral <- vi.GOenr$bestPTerms[[4]]$enrichment
+
+
+#for bacteria infection
+#MElightsteelblue1
+#for MEgrep60
+FilterGenes12= abs(GS1)> .75 & abs(datKME$kMElightsteelblue1)>0.9
+FilterGenes11= abs(GS1)> .75 & abs(datKME$kMEgrey60)>0.95
+table(FilterGenes11)
+sig.bact <- c(colnames(WGCNA_matrix)[FilterGenes11],colnames(WGCNA_matrix)[FilterGenes12])
+
+bact.GOenr <- GOenrichmentAnalysis(sig.bact,select(hgu133a2.db, sig.bact, 
+                                                   c("ENTREZID"))[,2])
+
+tab.bact <- bact.GOenr$bestPTerms[[4]]$enrichment
+
+#fungal infection
+##MElightsteelblue1
+#MEturquoise
+#MEbrown
+FilterGenes12= abs(GS1)> .75 & abs(datKME$kMElightsteelblue1)>0.9
+FilterGenes41= abs(GS1)> .75 & abs(datKME$kMEturquoise)>0.95
+FilterGenes42= abs(GS1)> .75 & abs(datKME$kMEbrown)>0.9
+
+sig.fung <- c(colnames(WGCNA_matrix)[FilterGenes12],colnames(WGCNA_matrix)[FilterGenes41],
+              colnames(WGCNA_matrix)[FilterGenes42])
+
+
+fung.GOenr <- GOenrichmentAnalysis(sig.fung,select(hgu133a2.db, sig.fung, 
+                                                   c("ENTREZID"))[,2])
+
+tab.fung <- fung.GOenr$bestPTerms[[4]]$enrichment
+```
+
+---
+title: "Fungal_project_version5"
+author: "Yiling Liu"
+date: "6/30/2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
